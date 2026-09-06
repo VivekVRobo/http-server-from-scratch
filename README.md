@@ -252,7 +252,7 @@ Windows IOCP follows as M6C.
 - [`docs/MILESTONE_4.md`](docs/MILESTONE_4.md)
 - [`docs/MILESTONE_5.md`](docs/MILESTONE_5.md)
 - [`docs/MILESTONE_6A.md`](docs/MILESTONE_6A.md)
-- [`docs/MILESTONE_6A_1.md`](docs/MILESTONE_6A_1.md)
+- [`docs/MILESTONE_6A1.md`](docs/MILESTONE_6A1.md)
 - [`docs/MILESTONE_6B.md`](docs/MILESTONE_6B.md)
 
 ## License
