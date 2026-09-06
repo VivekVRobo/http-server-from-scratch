@@ -9,10 +9,10 @@
 #include <utility>
 
 #if defined(__linux__)
+#include <array>
 #include <cerrno>
 #include <chrono>
-#include <cstring>
-#include <memory>
+#include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <string>
@@ -134,6 +134,19 @@ void close_fd(int& fd) noexcept {
     }
 }
 
+bool configure_nonblocking_cloexec(int fd) noexcept {
+    const int status_flags = ::fcntl(fd, F_GETFL, 0);
+    if (status_flags < 0 || ::fcntl(fd, F_SETFL, status_flags | O_NONBLOCK) < 0) {
+        return false;
+    }
+
+    const int descriptor_flags = ::fcntl(fd, F_GETFD, 0);
+    if (descriptor_flags < 0 || ::fcntl(fd, F_SETFD, descriptor_flags | FD_CLOEXEC) < 0) {
+        return false;
+    }
+    return true;
+}
+
 int bind_nonblocking_listener(const std::string& host,
                               std::uint16_t port,
                               int backlog) {
@@ -156,15 +169,25 @@ int bind_nonblocking_listener(const std::string& host,
     for (addrinfo* address = addresses; address != nullptr; address = address->ai_next) {
         const int candidate = ::socket(
             address->ai_family,
-            address->ai_socktype | SOCK_NONBLOCK | SOCK_CLOEXEC,
+            address->ai_socktype,
             address->ai_protocol);
         if (candidate < 0) {
             last_error = errno;
             continue;
         }
+        if (!configure_nonblocking_cloexec(candidate)) {
+            last_error = errno;
+            ::close(candidate);
+            continue;
+        }
 
         int reuse = 1;
-        if (::setsockopt(candidate, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse)) != 0) {
+        if (::setsockopt(
+                candidate,
+                SOL_SOCKET,
+                SO_REUSEADDR,
+                &reuse,
+                static_cast<socklen_t>(sizeof(reuse))) != 0) {
             last_error = errno;
             ::close(candidate);
             continue;
@@ -354,8 +377,7 @@ void EpollRuntime::run(std::string host, std::uint16_t port) {
                     }
 
                     while (true) {
-                        const int client_fd = ::accept4(
-                            listener_fd, nullptr, nullptr, SOCK_NONBLOCK | SOCK_CLOEXEC);
+                        const int client_fd = ::accept(listener_fd, nullptr, nullptr);
                         if (client_fd < 0) {
                             if (errno == EINTR || errno == ECONNABORTED) {
                                 continue;
@@ -363,10 +385,15 @@ void EpollRuntime::run(std::string host, std::uint16_t port) {
                             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                                 break;
                             }
-                            throw_errno("accept4");
+                            throw_errno("accept");
                         }
 
                         accepted_.fetch_add(1);
+                        if (!configure_nonblocking_cloexec(client_fd)) {
+                            failed_.fetch_add(1);
+                            ::close(client_fd);
+                            continue;
+                        }
                         if (connections.size() >= epoll_config_.max_connections) {
                             rejected_.fetch_add(1);
                             ::close(client_fd);
