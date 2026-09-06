@@ -29,6 +29,7 @@ struct ThreadPoolStats {
     std::uint64_t failed = 0;
     std::size_t active = 0;
     std::size_t queued = 0;
+    std::size_t peak_active = 0;
 };
 
 class ThreadPoolRuntime {
@@ -59,6 +60,7 @@ private:
     void start_workers();
     void stop_workers_and_drain() noexcept;
     void mark_not_running() noexcept;
+    void publish_peak_active(std::size_t current) noexcept;
 
     Server connection_server_;
     ThreadPoolConfig pool_config_;
@@ -70,6 +72,7 @@ private:
     std::atomic<std::uint64_t> completed_{0};
     std::atomic<std::uint64_t> failed_{0};
     std::atomic<std::size_t> active_{0};
+    std::atomic<std::size_t> peak_active_{0};
 
     mutable std::mutex queue_mutex_;
     std::condition_variable queue_cv_;
