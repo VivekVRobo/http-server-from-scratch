@@ -11,6 +11,7 @@ add_library(vhttp
     src/router/router.cpp
     src/server/connection.cpp
     src/server/connection_session.cpp
+    src/server/epoll_runtime.cpp
     src/server/server.cpp
     src/server/thread_pool_runtime.cpp
     src/static_files/static_file_handler.cpp
@@ -84,4 +85,10 @@ if(BUILD_TESTING AND VHTTP_BUILD_TESTS)
     add_executable(vhttp_thread_pool_runtime_tests tests/thread_pool_runtime_tests.cpp)
     target_link_libraries(vhttp_thread_pool_runtime_tests PRIVATE vhttp::vhttp)
     add_test(NAME thread_pool_runtime_tests COMMAND vhttp_thread_pool_runtime_tests)
+
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        add_executable(vhttp_epoll_runtime_tests tests/epoll_runtime_tests.cpp)
+        target_link_libraries(vhttp_epoll_runtime_tests PRIVATE vhttp::vhttp)
+        add_test(NAME epoll_runtime_tests COMMAND vhttp_epoll_runtime_tests)
+    endif()
 endif()
