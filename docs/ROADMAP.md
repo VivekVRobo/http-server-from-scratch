@@ -57,14 +57,26 @@
 - documented benchmark matrix, repetition rules, and interpretation limits
 - no committed synthetic benchmark claims
 
-## M6B — Linux event runtime ← next
-- nonblocking sockets
-- `epoll` accept/read/write readiness
-- per-connection parser/output state
-- bounded output buffering and backpressure
-- timer/deadline integration
-- correctness parity tests against blocking/thread-pool runtimes
-- compare against the M6A thread pool using the same benchmark protocol
+## M6B — Linux event-runtime correctness ✅
+- transport-agnostic `ConnectionSession` shared with blocking runtime
+- nonblocking Linux listener and accepted sockets
+- level-triggered `epoll` accept/read/write readiness
+- partial-write handling with read-side backpressure while output is pending
+- bounded active-connection admission and explicit rejection accounting
+- bounded per-connection serialized-output budget
+- idle timeout retirement without busy polling
+- deterministic stop: stop accepting, then drain/retire active connections
+- ordered persistent/pipelined HTTP behavior through the shared session core
+- Linux loopback tests for parity, admission pressure, idle retirement, output bounds, and drain
+- GCC/Clang Linux verification plus non-Linux API compilation on MSVC
+
+## M6B.1 — comparative event-runtime evidence ← next
+- allow the benchmark server to select thread-pool vs `epoll` runtime on Linux
+- run identical keep-alive and connection-churn matrices through the existing harness
+- collect repeated throughput and p50/p95/p99 latency results
+- collect CPU/RSS and peak-active-connection evidence with exact machine/build metadata
+- commit only curated, reproducible result sets tied to Git revisions
+- make no scalability/performance superiority claim before this evidence gate passes
 
 ## M6C — Windows event runtime
 - IOCP accept/read/write completion model
@@ -77,5 +89,5 @@
 - fuzzing + sanitizers
 - malformed-request corpus
 - external high-rate load harness such as `wrk`
-- CPU/RSS/resource profiling
-- curated repeated benchmark result sets tied to Git revisions and machine metadata
+- deeper CPU/RSS/resource profiling
+- long-duration soak tests and failure-injection scenarios
