@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Run reproducible vhttp runtime comparisons without inventing conclusions.
+"""Reproducible vhttp runtime comparison orchestrator.
 
-This orchestrator launches the same benchmark server binary in each requested
-runtime mode, drives it with tools/stress_http.py, preserves raw client/server
-JSON plus logs for every run, and writes a median summary. It intentionally does
-not label a runtime as a winner; interpretation belongs with the raw evidence.
+The tool launches the same benchmark-server binary in each requested runtime
+mode, drives it with tools/stress_http.py, preserves every raw client/server
+JSON and log, and writes a median summary. It intentionally does not declare a
+winner or convert local loopback measurements into universal performance claims.
 """
 
 from __future__ import annotations
@@ -12,6 +12,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import pathlib
 import platform
 import queue
@@ -27,6 +28,7 @@ from typing import Any
 
 
 READY_PATTERN = re.compile(r"^READY runtime=(threadpool|epoll) port=(\d+)$")
+VALID_RUNTIMES = ("threadpool", "epoll")
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,7 @@ class Scenario:
 class RunEvidence:
     runtime: str
     run_index: int
+    execution_order: int
     client_json_path: pathlib.Path
     server_json_path: pathlib.Path
     client_log_path: pathlib.Path
@@ -81,8 +84,10 @@ def parse_runtimes(value: str) -> list[str]:
         runtime = item.strip().lower()
         if not runtime:
             continue
-        if runtime not in {"threadpool", "epoll"}:
-            raise argparse.ArgumentTypeError("runtimes must contain only threadpool and/or epoll")
+        if runtime not in VALID_RUNTIMES:
+            raise argparse.ArgumentTypeError(
+                "runtimes must contain only threadpool and/or epoll"
+            )
         if runtime not in runtimes:
             runtimes.append(runtime)
     if not runtimes:
@@ -92,12 +97,21 @@ def parse_runtimes(value: str) -> list[str]:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Run repeatable threadpool/epoll benchmark comparisons and preserve raw evidence"
+        description=(
+            "Run repeated threadpool/epoll comparisons and preserve raw evidence; "
+            "no performance winner is inferred"
+        )
     )
-    parser.add_argument("--server", default="build/vhttp_bench_server", help="path to vhttp_bench_server")
-    parser.add_argument("--client", default="tools/stress_http.py", help="path to stress_http.py")
+    parser.add_argument(
+        "--server", default="build/vhttp_bench_server", help="path to vhttp_bench_server"
+    )
+    parser.add_argument(
+        "--client", default="tools/stress_http.py", help="path to stress_http.py"
+    )
     parser.add_argument("--output-dir", default="benchmark-results/local/comparison")
-    parser.add_argument("--runtimes", type=parse_runtimes, default=parse_runtimes("threadpool,epoll"))
+    parser.add_argument(
+        "--runtimes", type=parse_runtimes, default=parse_runtimes("threadpool,epoll")
+    )
     parser.add_argument("--runs", type=positive_int, default=5)
     parser.add_argument("--admission", type=positive_int, default=260)
     parser.add_argument("--workers", type=positive_int, default=4)
@@ -106,7 +120,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--concurrency", type=positive_int, default=8)
     parser.add_argument("--warmup", type=nonnegative_int, default=500)
     parser.add_argument("--mode", choices=("keepalive", "connect"), default="keepalive")
-    parser.add_argument("--timeout", type=float, default=5.0, help="per-request socket timeout seconds")
+    parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument("--max-error-rate", type=rate, default=0.0)
     parser.add_argument("--startup-timeout", type=float, default=10.0)
     parser.add_argument("--client-phase-timeout", type=float, default=180.0)
@@ -114,18 +128,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--require-identified-build",
         action="store_true",
-        help="fail if the benchmark server reports git_revision=unknown",
+        help="fail if server JSON reports git_revision=unknown",
     )
     args = parser.parse_args()
 
     if args.timeout <= 0:
         parser.error("--timeout must be greater than zero")
-    if args.startup_timeout <= 0 or args.client_phase_timeout <= 0 or args.shutdown_timeout <= 0:
-        parser.error("phase timeout values must be greater than zero")
+    if args.startup_timeout <= 0:
+        parser.error("--startup-timeout must be greater than zero")
+    if args.client_phase_timeout <= 0:
+        parser.error("--client-phase-timeout must be greater than zero")
+    if args.shutdown_timeout <= 0:
+        parser.error("--shutdown-timeout must be greater than zero")
     if args.admission <= args.workers and "threadpool" in args.runtimes:
-        parser.error("--admission must be greater than --workers for threadpool comparisons")
+        parser.error("--admission must be greater than --workers for threadpool runs")
     if "epoll" in args.runtimes and platform.system() != "Linux":
-        parser.error("epoll comparison is supported only on Linux; use --runtimes threadpool elsewhere")
+        parser.error("epoll comparison is Linux-only; use --runtimes threadpool elsewhere")
     return args
 
 
@@ -141,6 +159,12 @@ def load_json(path: pathlib.Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise RuntimeError(f"expected JSON object in {path}")
     return data
+
+
+def nested_mapping(value: Any, label: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise RuntimeError(f"expected object for {label}")
+    return value
 
 
 def median_optional(values: list[float | int | None]) -> float | None:
@@ -168,7 +192,9 @@ def wait_for_ready(
     while True:
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise RuntimeError(f"{runtime} benchmark server did not become ready within {timeout:.1f}s")
+            raise RuntimeError(
+                f"{runtime} benchmark server did not become ready within {timeout:.1f}s"
+            )
         try:
             line = line_queue.get(timeout=min(remaining, 0.25))
         except queue.Empty:
@@ -177,12 +203,14 @@ def wait_for_ready(
             continue
 
         match = READY_PATTERN.match(line)
-        if not match:
+        if match is None:
             continue
         ready_runtime = match.group(1)
         ready_port = int(match.group(2))
         if ready_runtime != runtime:
-            raise RuntimeError(f"READY runtime mismatch: expected {runtime}, got {ready_runtime}")
+            raise RuntimeError(
+                f"READY runtime mismatch: expected {runtime}, got {ready_runtime}"
+            )
         if ready_port != expected_port:
             raise RuntimeError(f"READY port mismatch: expected {expected_port}, got {ready_port}")
         return
@@ -193,6 +221,7 @@ def stop_server(process: subprocess.Popen[str], shutdown_timeout: float) -> None
         return
     if process.stdin is None:
         raise RuntimeError("benchmark server stdin pipe is unavailable")
+
     try:
         process.stdin.write("stop\n")
         process.stdin.flush()
@@ -217,6 +246,7 @@ def run_once(
     scenario: Scenario,
     runtime: str,
     run_index: int,
+    execution_order: int,
     output_dir: pathlib.Path,
 ) -> RunEvidence:
     port = choose_loopback_port()
@@ -256,6 +286,7 @@ def run_once(
     if server_process.stdout is None:
         server_process.kill()
         raise RuntimeError("benchmark server stdout pipe is unavailable")
+
     reader = threading.Thread(
         target=read_stream,
         args=(server_process.stdout, line_queue, server_lines),
@@ -291,7 +322,7 @@ def run_once(
             "--json-out",
             str(client_json_path),
         ]
-        client_completed = subprocess.run(
+        completed = subprocess.run(
             client_command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
@@ -299,8 +330,8 @@ def run_once(
             timeout=args.client_phase_timeout,
             check=False,
         )
-        client_output = client_completed.stdout
-        client_returncode = client_completed.returncode
+        client_output = completed.stdout
+        client_returncode = completed.returncode
     finally:
         try:
             stop_server(server_process, args.shutdown_timeout)
@@ -328,12 +359,20 @@ def run_once(
     server = load_json(server_json_path)
     if server.get("runtime") != runtime:
         raise RuntimeError(f"server JSON runtime mismatch in {server_json_path}")
-    if args.require_identified_build and server.get("git_revision") in {None, "", "unknown"}:
+    if args.require_identified_build and server.get("git_revision") in (None, "", "unknown"):
         raise RuntimeError(f"server build is not tied to a Git revision in {server_json_path}")
+
+    # Fail early if either evidence schema is incompatible with the summarizer.
+    results = nested_mapping(client.get("results"), f"{client_json_path}:results")
+    nested_mapping(results.get("attempt_latency"), f"{client_json_path}:attempt_latency")
+    nested_mapping(results.get("success_latency"), f"{client_json_path}:success_latency")
+    nested_mapping(server.get("runtime_stats"), f"{server_json_path}:runtime_stats")
+    nested_mapping(server.get("resources"), f"{server_json_path}:resources")
 
     return RunEvidence(
         runtime=runtime,
         run_index=run_index,
+        execution_order=execution_order,
         client_json_path=client_json_path,
         server_json_path=server_json_path,
         client_log_path=client_log_path,
@@ -344,13 +383,24 @@ def run_once(
 
 
 def runtime_summary(evidence: list[RunEvidence]) -> dict[str, Any]:
-    client_results = [item.client["results"] for item in evidence]
-    server_stats = [item.server["runtime_stats"] for item in evidence]
-    resources = [item.server["resources"] for item in evidence]
+    client_results = [nested_mapping(item.client["results"], "client results") for item in evidence]
+    success_latencies = [
+        nested_mapping(result["success_latency"], "success latency") for result in client_results
+    ]
+    attempt_latencies = [
+        nested_mapping(result["attempt_latency"], "attempt latency") for result in client_results
+    ]
+    server_stats = [
+        nested_mapping(item.server["runtime_stats"], "runtime stats") for item in evidence
+    ]
+    resources = [nested_mapping(item.server["resources"], "resources") for item in evidence]
 
     return {
         "runs": len(evidence),
-        "git_revisions": sorted({str(item.server.get("git_revision", "unknown")) for item in evidence}),
+        "latency_basis": "success_latency",
+        "git_revisions": sorted(
+            {str(item.server.get("git_revision", "unknown")) for item in evidence}
+        ),
         "compilers": sorted({str(item.server.get("compiler", "unknown")) for item in evidence}),
         "build_configurations": sorted(
             {str(item.server.get("build_configuration", "unknown")) for item in evidence}
@@ -362,19 +412,43 @@ def runtime_summary(evidence: list[RunEvidence]) -> dict[str, Any]:
             "successful_requests_per_second": median_optional(
                 [result.get("successful_requests_per_second") for result in client_results]
             ),
-            "failure_rate": median_optional([result.get("failure_rate") for result in client_results]),
-            "p50_ms": median_optional([result["latency"].get("p50_ms") for result in client_results]),
-            "p95_ms": median_optional([result["latency"].get("p95_ms") for result in client_results]),
-            "p99_ms": median_optional([result["latency"].get("p99_ms") for result in client_results]),
+            "failure_rate": median_optional(
+                [result.get("failure_rate") for result in client_results]
+            ),
+            "success_p50_ms": median_optional(
+                [latency.get("p50_ms") for latency in success_latencies]
+            ),
+            "success_p95_ms": median_optional(
+                [latency.get("p95_ms") for latency in success_latencies]
+            ),
+            "success_p99_ms": median_optional(
+                [latency.get("p99_ms") for latency in success_latencies]
+            ),
+            "attempt_p50_ms": median_optional(
+                [latency.get("p50_ms") for latency in attempt_latencies]
+            ),
+            "attempt_p95_ms": median_optional(
+                [latency.get("p95_ms") for latency in attempt_latencies]
+            ),
+            "attempt_p99_ms": median_optional(
+                [latency.get("p99_ms") for latency in attempt_latencies]
+            ),
             "process_cpu_seconds": median_optional(
                 [resource.get("process_cpu_seconds") for resource in resources]
             ),
-            "peak_rss_kib": median_optional([resource.get("peak_rss_kib") for resource in resources]),
+            "wall_seconds": median_optional([resource.get("wall_seconds") for resource in resources]),
+            "peak_rss_kib": median_optional(
+                [resource.get("peak_rss_kib") for resource in resources]
+            ),
             "peak_active_connections": median_optional(
                 [stats.get("peak_active") for stats in server_stats]
             ),
-            "rejected_connections": median_optional([stats.get("rejected") for stats in server_stats]),
-            "failed_connections": median_optional([stats.get("failed") for stats in server_stats]),
+            "rejected_connections": median_optional(
+                [stats.get("rejected") for stats in server_stats]
+            ),
+            "failed_connections": median_optional(
+                [stats.get("failed") for stats in server_stats]
+            ),
         },
     }
 
@@ -390,11 +464,15 @@ def write_summary(
         grouped.setdefault(item.runtime, []).append(item)
 
     summary: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "generated_at_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
         "interpretation": (
-            "Raw local measurements only. This summary intentionally does not declare a winning runtime "
-            "or a universal capacity/performance claim."
+            "Raw local measurements only. This summary intentionally does not declare a winning "
+            "runtime or a universal capacity/performance claim."
+        ),
+        "ordering_policy": (
+            "Runtime order alternates by repetition when more than one runtime is selected, reducing "
+            "systematic first-run thermal/cache bias without pretending to eliminate it."
         ),
         "scenario": {
             "admission_capacity": scenario.admission,
@@ -411,13 +489,14 @@ def write_summary(
         "orchestrator_environment": {
             "platform": platform.platform(),
             "python": platform.python_version(),
-            "logical_cpu_count": __import__("os").cpu_count(),
+            "logical_cpu_count": os.cpu_count(),
         },
         "runtime_summaries": {
             runtime: runtime_summary(items) for runtime, items in sorted(grouped.items())
         },
         "raw_runs": [
             {
+                "execution_order": item.execution_order,
                 "runtime": item.runtime,
                 "run_index": item.run_index,
                 "client_json": item.client_json_path.name,
@@ -425,26 +504,62 @@ def write_summary(
                 "client_log": item.client_log_path.name,
                 "server_log": item.server_log_path.name,
             }
-            for item in all_evidence
+            for item in sorted(all_evidence, key=lambda run: run.execution_order)
         ],
     }
     path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return summary
 
 
+def format_number(value: float | None, decimals: int) -> str:
+    return "n/a" if value is None else f"{value:.{decimals}f}"
+
+
 def print_summary(summary: dict[str, Any]) -> None:
     print("vhttp runtime comparison summary")
-    for runtime, data in summary["runtime_summaries"].items():
-        median = data["median"]
+    runtime_summaries = nested_mapping(summary["runtime_summaries"], "runtime summaries")
+    for runtime, data_value in runtime_summaries.items():
+        data = nested_mapping(data_value, f"summary for {runtime}")
+        median = nested_mapping(data["median"], f"median for {runtime}")
         print(f"  {runtime} ({data['runs']} run(s))")
-        print(f"    median requests/s: {median['requests_per_second']:.2f}")
-        print(f"    median p50/p95/p99 ms: {median['p50_ms']:.3f} / {median['p95_ms']:.3f} / {median['p99_ms']:.3f}")
-        print(f"    median failure rate: {median['failure_rate'] * 100.0:.3f}%")
-        print(f"    median server CPU seconds: {median['process_cpu_seconds']:.6f}")
-        rss = median["peak_rss_kib"]
-        print(f"    median peak RSS KiB: {'n/a' if rss is None else f'{rss:.0f}'}")
-        print(f"    median peak active connections: {median['peak_active_connections']:.0f}")
+        print(
+            "    median requests/s: "
+            + format_number(median.get("requests_per_second"), 2)
+        )
+        print(
+            "    median success p50/p95/p99 ms: "
+            + " / ".join(
+                [
+                    format_number(median.get("success_p50_ms"), 3),
+                    format_number(median.get("success_p95_ms"), 3),
+                    format_number(median.get("success_p99_ms"), 3),
+                ]
+            )
+        )
+        failure_rate = median.get("failure_rate")
+        failure_text = "n/a" if failure_rate is None else f"{float(failure_rate) * 100.0:.3f}%"
+        print(f"    median failure rate: {failure_text}")
+        print(
+            "    median server CPU seconds: "
+            + format_number(median.get("process_cpu_seconds"), 6)
+        )
+        print(
+            "    median peak RSS KiB: " + format_number(median.get("peak_rss_kib"), 0)
+        )
+        print(
+            "    median peak active connections: "
+            + format_number(median.get("peak_active_connections"), 0)
+        )
     print("  No winner is inferred; inspect raw evidence and environment metadata.")
+
+
+def execution_plan(runtimes: list[str], runs: int) -> list[tuple[str, int]]:
+    plan: list[tuple[str, int]] = []
+    for run_index in range(1, runs + 1):
+        ordered = runtimes if run_index % 2 == 1 else list(reversed(runtimes))
+        for runtime in ordered:
+            plan.append((runtime, run_index))
+    return plan
 
 
 def main() -> int:
@@ -472,10 +587,23 @@ def main() -> int:
     )
 
     evidence: list[RunEvidence] = []
-    for runtime in args.runtimes:
-        for run_index in range(1, args.runs + 1):
-            print(f"running {runtime} evidence {run_index}/{args.runs}...", flush=True)
-            evidence.append(run_once(args, scenario, runtime, run_index, output_dir))
+    plan = execution_plan(args.runtimes, args.runs)
+    for execution_order, (runtime, run_index) in enumerate(plan, start=1):
+        print(
+            f"running {runtime} repetition {run_index}/{args.runs} "
+            f"(execution {execution_order}/{len(plan)})...",
+            flush=True,
+        )
+        evidence.append(
+            run_once(
+                args,
+                scenario,
+                runtime,
+                run_index,
+                execution_order,
+                output_dir,
+            )
+        )
 
     summary_path = output_dir / "summary.json"
     summary = write_summary(summary_path, args, scenario, evidence)
