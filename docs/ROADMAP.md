@@ -49,8 +49,8 @@
 - runtime statistics and concurrency/backpressure tests
 
 ## M6A.1 — stress/performance evidence harness ✅
-- benchmark server backed by the real thread-pool/parser/router/serializer path
-- persistent-connection and connection-churn load modes
+- dependency-free HTTP load client
+- persistent-connection and connection-churn modes
 - warm-up, configurable request/concurrency/timeout/error policy
 - throughput and min/mean/p50/p95/p99/max latency reporting
 - status/error accounting and machine-readable JSON evidence
@@ -70,13 +70,27 @@
 - Linux loopback tests for parity, admission pressure, idle retirement, output bounds, and drain
 - GCC/Clang Linux verification plus non-Linux API compilation on MSVC
 
-## M6B.1 — comparative event-runtime evidence ← next
-- allow the benchmark server to select thread-pool vs `epoll` runtime on Linux
-- run identical keep-alive and connection-churn matrices through the existing harness
-- collect repeated throughput and p50/p95/p99 latency results
-- collect CPU/RSS and peak-active-connection evidence with exact machine/build metadata
-- commit only curated, reproducible result sets tied to Git revisions
-- make no scalability/performance superiority claim before this evidence gate passes
+## M6B.1 — comparative evidence workflow ✅
+- one benchmark-server interface selects `threadpool` or Linux `epoll`
+- identical handler, payload, loopback target, and client harness for both runtimes
+- common total accepted in-flight admission budget
+- thread-pool `peak_active` accounting normalized with the event runtime
+- Git revision, compiler, build configuration, wall/process-CPU time, and Linux peak-RSS server evidence
+- exact stdin-controlled server lifetime for orchestrated client phases
+- repeated comparison orchestrator preserves every raw client/server JSON and log
+- alternating runtime execution order across repetitions to reduce systematic first-run bias
+- median throughput, successful-request latency, failure, CPU, RSS, peak-active, rejection, and failure summaries
+- CI smoke proves both benchmark paths operate but asserts no performance threshold and is not publishable benchmark evidence
+- no automatic winner or percentage-superiority claim
+
+## M6B.2 — controlled-host comparative evidence ← next
+- run the documented keep-alive and connection-churn matrices on a named Linux machine
+- use Release builds tied to an exact Git revision
+- repeat every scenario at least five times
+- record CPU model, logical cores, RAM, OS/kernel, compiler, power mode, and client placement
+- preserve all raw runs including failures/saturation
+- curate result bundles under `benchmark-results/curated/`
+- publish a measured runtime difference only when raw evidence and limitations support it
 
 ## M6C — Windows event runtime
 - IOCP accept/read/write completion model
