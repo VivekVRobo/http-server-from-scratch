@@ -10,6 +10,7 @@ add_library(vhttp
     src/http/response.cpp
     src/router/router.cpp
     src/server/connection.cpp
+    src/server/connection_session.cpp
     src/server/server.cpp
     src/server/thread_pool_runtime.cpp
     src/static_files/static_file_handler.cpp
@@ -67,6 +68,10 @@ if(BUILD_TESTING AND VHTTP_BUILD_TESTS)
     add_executable(vhttp_connection_integration_tests tests/connection_integration_tests.cpp)
     target_link_libraries(vhttp_connection_integration_tests PRIVATE vhttp::vhttp)
     add_test(NAME connection_integration_tests COMMAND vhttp_connection_integration_tests)
+
+    add_executable(vhttp_connection_session_tests tests/connection_session_tests.cpp)
+    target_link_libraries(vhttp_connection_session_tests PRIVATE vhttp::vhttp)
+    add_test(NAME connection_session_tests COMMAND vhttp_connection_session_tests)
 
     add_executable(vhttp_static_file_tests tests/static_file_tests.cpp)
     target_link_libraries(vhttp_static_file_tests PRIVATE vhttp::vhttp)
