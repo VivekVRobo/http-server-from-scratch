@@ -43,6 +43,7 @@ void ThreadPoolRuntime::run(std::string host, std::uint16_t port) {
     completed_.store(0);
     failed_.store(0);
     active_.store(0);
+    peak_active_.store(0);
     {
         std::lock_guard lock(queue_mutex_);
         queue_.clear();
@@ -135,6 +136,7 @@ ThreadPoolStats ThreadPoolRuntime::stats() const {
     snapshot.completed = completed_.load();
     snapshot.failed = failed_.load();
     snapshot.active = active_.load();
+    snapshot.peak_active = peak_active_.load();
     {
         std::lock_guard lock(queue_mutex_);
         snapshot.queued = queue_.size();
@@ -156,7 +158,8 @@ void ThreadPoolRuntime::worker_loop() {
             }
             stream = std::move(queue_.front());
             queue_.pop_front();
-            active_.fetch_add(1);
+            const std::size_t current = active_.fetch_add(1) + 1;
+            publish_peak_active(current);
         }
 
         try {
@@ -203,6 +206,12 @@ void ThreadPoolRuntime::mark_not_running() noexcept {
     }
     running_.store(false);
     state_cv_.notify_all();
+}
+
+void ThreadPoolRuntime::publish_peak_active(std::size_t current) noexcept {
+    std::size_t observed = peak_active_.load();
+    while (observed < current && !peak_active_.compare_exchange_weak(observed, current)) {
+    }
 }
 
 }  // namespace vhttp::server

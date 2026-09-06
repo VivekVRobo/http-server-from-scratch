@@ -12,10 +12,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Validate stress harness
+      - name: Validate benchmark harnesses
         run: |
-          python3 -m py_compile tools/stress_http.py
+          python3 -m py_compile tools/stress_http.py tools/compare_runtimes.py
           python3 tools/stress_http.py --help >/dev/null
+          python3 tools/compare_runtimes.py --help >/dev/null
       - name: Configure GCC
         if: matrix.compiler == 'gcc'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
@@ -26,3 +27,22 @@ jobs:
         run: cmake --build build --parallel
       - name: Test
         run: ctest --test-dir build --output-on-failure
+      - name: Runtime comparison smoke (not benchmark evidence)
+        if: matrix.compiler == 'gcc'
+        run: |
+          python3 tools/compare_runtimes.py \
+            --server ./build/vhttp_bench_server \
+            --output-dir build/benchmark-smoke \
+            --runtimes threadpool,epoll \
+            --runs 1 \
+            --admission 16 \
+            --workers 2 \
+            --payload 32 \
+            --requests 40 \
+            --concurrency 2 \
+            --warmup 4 \
+            --mode keepalive \
+            --startup-timeout 5 \
+            --client-phase-timeout 30 \
+            --shutdown-timeout 5 \
+            --require-identified-build

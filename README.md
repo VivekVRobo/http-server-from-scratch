@@ -2,7 +2,7 @@
 
 A cross-platform C++20 HTTP server built from raw sockets to make protocol parsing, routing, connection lifecycle, message framing, static-file security, bounded concurrency, event-driven I/O, and performance verification visible and testable.
 
-> Status: **Milestone 6B event-runtime correctness implemented.** The repository now contains both a bounded blocking thread-pool runtime and a Linux nonblocking `epoll` runtime sharing the same HTTP connection state machine. Performance/scalability superiority is **not claimed yet**; comparative evidence remains gated on M6B.1.
+> Status: **Milestone 6B.1 comparative runtime evidence workflow implemented.** The repository contains a bounded blocking thread-pool runtime and a Linux nonblocking `epoll` runtime sharing the same HTTP connection state machine, plus one apples-to-apples benchmark surface and repeated-evidence orchestrator. No runtime-performance winner is claimed until controlled-host evidence is published.
 
 This remains an educational/engineering server, not a production-ready internet-facing reverse proxy.
 
@@ -60,7 +60,7 @@ The important HTTP server layers are implemented here rather than delegated to a
 - No detached worker/connection threads.
 - `request_stop()` stops new acceptance and drains queued + active work before workers are joined.
 - Per-connection exception containment.
-- Runtime counters for accepted, rejected, completed, failed, active, and queued connections.
+- Runtime counters for accepted, rejected, completed, failed, active, queued, and peak-active connections.
 - Every worker reuses the same `Server::serve_connection()` + `ConnectionSession` HTTP semantics.
 
 ### Linux `epoll` event runtime
@@ -77,19 +77,20 @@ The important HTTP server layers are implemented here rather than delegated to a
 - Runtime counters for accepted, rejected, completed, failed, active, and peak-active connections.
 - Cross-platform feature detection through `EpollRuntime::supported()`; non-Linux `run()` fails explicitly instead of silently degrading.
 
-### Stress/performance evidence harness
+### Comparative performance evidence workflow
 
-- `vhttp_bench_server` currently exercises the real thread-pool/parser/router/serializer path with configurable workers, pending capacity, fixed run duration, and response payload size.
-- `tools/stress_http.py` uses only the Python standard library.
-- Persistent-connection and connection-churn load modes.
-- Configurable request count, concurrency, warm-up, timeout, expected status, and tolerated error rate.
-- Throughput plus min/mean/p50/p95/p99/max request latency.
-- Success/failure, HTTP status, and top transport-error accounting.
-- Machine-readable JSON output with client command and environment metadata.
-- Explicit methodology in [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md).
-- No fabricated throughput/latency numbers are committed.
+- `vhttp_bench_server` selects `threadpool` or Linux `epoll` through one explicit CLI.
+- Both modes use the same `/bench` route and payload.
+- A common total accepted in-flight admission budget is used for comparison.
+- `--until-stdin` lets an orchestrator stop the server exactly when one client phase finishes.
+- Server JSON can record Git revision, build configuration, compiler, runtime configuration, wall/process-CPU time, Linux peak RSS, and runtime counters.
+- `tools/stress_http.py` provides dependency-free keep-alive and connection-churn load with throughput, failures, status/error accounting, and attempt/success latency distributions.
+- `tools/compare_runtimes.py` repeats scenarios, alternates runtime execution order, preserves every raw client/server JSON and log, and writes median summaries.
+- Primary comparison latency uses successful-request p50/p95/p99 while preserving attempt latency and failure-rate evidence.
+- CI runs a tiny end-to-end comparison smoke but asserts no throughput/latency threshold and is explicitly **not benchmark evidence**.
+- No fabricated throughput/latency values and no automatic runtime winner are committed.
 
-M6B.1 will put the thread-pool and `epoll` runtimes behind the **same** benchmark server surface before any comparative performance claim is allowed.
+See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) and [`benchmark-results/README.md`](benchmark-results/README.md) for the evidence rules.
 
 ## Verification
 
@@ -97,10 +98,11 @@ M6B.1 will put the thread-pool and `epoll` runtimes behind the **same** benchmar
 - Filesystem tests for traversal, percent-encoding, MIME, validators, ranges, and symlink escapes where the platform permits symlink creation.
 - Real loopback TCP tests for persistent/pipelined requests, chunked flows, static `GET`/`HEAD`/`206`/`304`/`416`, concurrent handler overlap, queue saturation, and graceful active-request drain.
 - Linux `epoll` loopback tests for ordered pipelining, admission pressure, idle retirement, bounded response buffering, and stop/drain behavior.
+- Thread-pool tests verify concurrency, saturation, drain, and peak-active accounting.
 - CI for GCC, Clang, and MSVC.
 - Linux GCC/Clang compile and execute the real event-loop tests.
-- Windows MSVC compiles the public `EpollRuntime` API/non-Linux fallback and preserves the full existing cross-platform test suite.
-- CI compiles the benchmark server and syntax-checks the dependency-free load harness; performance numbers are not treated as stable CI assertions.
+- Windows MSVC compiles the public `EpollRuntime` API/non-Linux fallback and preserves the cross-platform suite.
+- Linux GCC CI runs one tiny threadpool+epoll comparison smoke to verify benchmark orchestration end to end.
 
 ## Architecture
 
@@ -197,33 +199,53 @@ Use `EpollRuntime::supported()` before selecting this runtime in cross-platform 
 
 **Event-loop handler contract:** handlers execute synchronously on the event-loop thread. A slow handler, blocking filesystem operation, or expensive computation can stall unrelated event-loop connections. The current static-file handler is synchronous as well.
 
-## Generate local performance evidence
+## Compare thread pool vs Linux `epoll`
 
-The current benchmark server targets the thread-pool baseline:
-
-```bash
-./build/vhttp_bench_server 8081 4 256 60 128
-```
-
-Persistent-connection baseline:
+Build Release first, then run the comparison orchestrator on Linux:
 
 ```bash
-python3 tools/stress_http.py --port 8081 --requests 10000 --concurrency 8 --warmup 500 --mode keepalive --json-out benchmark-results/local/keepalive-c8.json
+python3 tools/compare_runtimes.py \
+  --server ./build/vhttp_bench_server \
+  --output-dir benchmark-results/local/keepalive-c8 \
+  --runtimes threadpool,epoll \
+  --runs 5 \
+  --admission 260 \
+  --workers 4 \
+  --payload 128 \
+  --requests 10000 \
+  --concurrency 8 \
+  --warmup 500 \
+  --mode keepalive \
+  --require-identified-build
 ```
 
-Connection-churn/admission pressure:
+Connection-churn variant:
 
 ```bash
-python3 tools/stress_http.py --port 8081 --requests 10000 --concurrency 64 --warmup 500 --mode connect --json-out benchmark-results/local/connect-c64.json
+python3 tools/compare_runtimes.py \
+  --server ./build/vhttp_bench_server \
+  --output-dir benchmark-results/local/connect-c64 \
+  --runtimes threadpool,epoll \
+  --runs 5 \
+  --admission 260 \
+  --workers 4 \
+  --payload 128 \
+  --requests 10000 \
+  --concurrency 64 \
+  --warmup 500 \
+  --mode connect \
+  --require-identified-build
 ```
 
-See [`docs/PERFORMANCE.md`](docs/PERFORMANCE.md) before publishing or comparing results. Local loopback numbers are not universal capacity claims. M6B.1 will add a common thread-pool/`epoll` selector so the exact same protocol can compare both runtimes.
+Every run retains raw client/server JSON and logs. `summary.json` contains medians and execution order but intentionally does not declare a winner.
+
+Local scratch results remain under ignored `benchmark-results/local/`. Only reviewed, complete bundles tied to a documented machine and Git revision belong under `benchmark-results/curated/`.
 
 ## Engineering constraints and limitations
 
 The server does **not** use Boost.Beast, Crow, cpp-httplib, Drogon, Pistache, or another HTTP server framework.
 
-The repository will not claim production readiness or high-performance superiority until broader fuzzing, soak/stress work, filesystem-race hardening, and reproducible comparative resource evidence exist.
+The repository will not claim production readiness or general performance superiority until broader fuzzing, soak/stress work, filesystem-race hardening, and reproducible controlled-host resource evidence exist.
 
 Important current limitations:
 
@@ -235,12 +257,13 @@ Important current limitations:
 - request bodies and static GET payloads are assembled/read in memory under configured limits.
 - static serving supports one range, weak metadata ETags, and canonicalize-then-open confinement that is not race-free against hostile concurrent local filesystem mutation.
 - the current event-loop idle-deadline implementation scans active connections after bounded `epoll_wait` intervals rather than using a timer wheel/deadline heap.
-- the first-party Python harness can become the client-side bottleneck at high request rates and is intended primarily for transparent regression/saturation evidence.
+- the first-party Python harness can become the client-side bottleneck at high request rates.
+- the `/bench` handler is intentionally tiny; its results do not prove behavior for blocking/expensive handlers.
 - no zero-copy file path or Windows IOCP backend yet.
 
 ## Next milestone
 
-**M6B.1 — comparative event-runtime evidence:** expose thread-pool and `epoll` modes through one benchmark-server interface, run identical workload matrices, and record repeatable throughput/latency plus CPU/RSS/peak-active evidence tied to exact machine/build metadata. Only after that gate may the repository claim a measured performance difference.
+**M6B.2 — controlled-host comparative evidence:** run the documented repeated keep-alive and connection-churn matrices on a named Linux machine, preserve all raw evidence, and commit only reviewed bundles under `benchmark-results/curated/`. Only then may the project make a measured runtime-performance claim for those specific conditions.
 
 Windows IOCP follows as M6C.
 
@@ -254,6 +277,7 @@ Windows IOCP follows as M6C.
 - [`docs/MILESTONE_6A.md`](docs/MILESTONE_6A.md)
 - [`docs/MILESTONE_6A1.md`](docs/MILESTONE_6A1.md)
 - [`docs/MILESTONE_6B.md`](docs/MILESTONE_6B.md)
+- [`docs/MILESTONE_6B1.md`](docs/MILESTONE_6B1.md)
 
 ## License
 

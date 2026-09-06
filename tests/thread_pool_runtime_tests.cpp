@@ -144,6 +144,7 @@ void handles_connections_concurrently() {
     expect(stats.accepted == 2, "two clients should be accepted");
     expect(stats.rejected == 0, "healthy concurrent load should not be rejected");
     expect(stats.completed == 2 && stats.failed == 0, "both concurrent connections should complete cleanly");
+    expect(stats.peak_active >= 2, "runtime should record the observed concurrent active-connection peak");
     expect(stats.active == 0 && stats.queued == 0, "runtime should be drained after join");
 }
 
@@ -191,6 +192,7 @@ void bounded_queue_rejects_excess_connections() {
     expect(stats.accepted >= 3, "saturation scenario should accept three transport connections");
     expect(stats.rejected >= 1, "bounded queue should report at least one rejection");
     expect(stats.completed >= 2, "active and queued connections should be drained after peer close");
+    expect(stats.peak_active == 1, "one-worker runtime must never report more than one active connection");
     expect(stats.active == 0 && stats.queued == 0, "drained runtime should expose no active or queued connections");
 }
 
@@ -230,6 +232,7 @@ void stop_drains_active_request_before_returning() {
     expect(wire.find("drained\n") != std::string::npos, "active response body should complete before runtime returns");
     const auto stats = runtime.stats();
     expect(stats.completed == 1 && stats.failed == 0, "drain should report the active connection as completed");
+    expect(stats.peak_active == 1, "single active drain should be represented in peak-active evidence");
 }
 
 void validates_pool_configuration() {
