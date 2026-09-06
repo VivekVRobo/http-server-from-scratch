@@ -2,9 +2,11 @@
 #include "vhttp/server/epoll_runtime.hpp"
 #include "vhttp/server/thread_pool_runtime.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <ctime>
 #include <exception>
 #include <fstream>
@@ -33,6 +35,7 @@ struct BenchmarkConfig {
     std::size_t payload_bytes = 128;
     std::optional<std::string> stats_json;
     bool workers_explicit = false;
+    bool until_stdin = false;
 };
 
 struct NormalizedStats {
@@ -46,6 +49,7 @@ struct NormalizedStats {
 };
 
 struct ResourceUsage {
+    double wall_seconds = 0.0;
     double cpu_seconds = 0.0;
     std::optional<std::uint64_t> peak_rss_kib;
 };
@@ -91,6 +95,7 @@ void print_usage(std::ostream& out) {
         << "  --port <1-65535>              Loopback TCP port (default: 8081)\n"
         << "  --admission <count>           Total accepted in-flight connection budget (default: 260)\n"
         << "  --duration <seconds>          Fixed server lifetime (default: 30)\n"
+        << "  --until-stdin                 Stop gracefully after one input line / EOF instead of duration\n"
         << "  --payload <bytes>             /bench payload, max 1 MiB (default: 128)\n"
         << "  --stats-json <path>           Write server/runtime/resource evidence as JSON\n"
         << "\n"
@@ -123,6 +128,8 @@ BenchmarkConfig parse_args(int argc, char** argv) {
         } else if (option == "--duration") {
             config.duration_seconds =
                 parse_positive(require_value(argc, argv, index, option), "duration seconds");
+        } else if (option == "--until-stdin") {
+            config.until_stdin = true;
         } else if (option == "--payload") {
             config.payload_bytes = parse_size(require_value(argc, argv, index, option), "payload bytes");
         } else if (option == "--stats-json") {
@@ -200,7 +207,8 @@ std::string build_configuration() {
 
 std::string json_escape(std::string_view value) {
     std::ostringstream out;
-    for (const unsigned char character : value) {
+    for (const char raw_character : value) {
+        const auto character = static_cast<unsigned char>(raw_character);
         switch (character) {
             case '"': out << "\\\""; break;
             case '\\': out << "\\\\"; break;
@@ -214,15 +222,20 @@ std::string json_escape(std::string_view value) {
                     out << "\\u" << std::hex << std::setw(4) << std::setfill('0')
                         << static_cast<unsigned int>(character) << std::dec << std::setfill(' ');
                 } else {
-                    out << static_cast<char>(character);
+                    out << raw_character;
                 }
         }
     }
     return out.str();
 }
 
-ResourceUsage capture_resource_usage(std::clock_t cpu_started) {
+ResourceUsage capture_resource_usage(
+    std::clock_t cpu_started,
+    std::chrono::steady_clock::time_point wall_started) {
     ResourceUsage usage;
+    const auto wall_finished = std::chrono::steady_clock::now();
+    usage.wall_seconds = std::chrono::duration<double>(wall_finished - wall_started).count();
+
     const std::clock_t cpu_finished = std::clock();
     if (cpu_started != static_cast<std::clock_t>(-1) &&
         cpu_finished != static_cast<std::clock_t>(-1)) {
@@ -257,7 +270,14 @@ void write_stats_json(const std::string& path,
            << "  \"configuration\": {\n"
            << "    \"port\": " << config.port << ",\n"
            << "    \"admission_capacity\": " << config.admission_capacity << ",\n"
-           << "    \"duration_seconds\": " << config.duration_seconds << ",\n"
+           << "    \"control_mode\": \"" << (config.until_stdin ? "stdin" : "duration") << "\",\n"
+           << "    \"duration_seconds\": ";
+    if (config.until_stdin) {
+        output << "null";
+    } else {
+        output << config.duration_seconds;
+    }
+    output << ",\n"
            << "    \"payload_bytes\": " << config.payload_bytes << ",\n";
     if (config.runtime == "threadpool") {
         output << "    \"workers\": " << config.workers << ",\n"
@@ -282,8 +302,9 @@ void write_stats_json(const std::string& path,
     }
     output << "\n  },\n"
            << "  \"resources\": {\n"
-           << "    \"process_cpu_seconds\": " << std::fixed << std::setprecision(6)
-           << resources.cpu_seconds << ",\n"
+           << "    \"wall_seconds\": " << std::fixed << std::setprecision(6)
+           << resources.wall_seconds << ",\n"
+           << "    \"process_cpu_seconds\": " << resources.cpu_seconds << ",\n"
            << "    \"peak_rss_kib\": ";
     if (resources.peak_rss_kib.has_value()) {
         output << *resources.peak_rss_kib;
@@ -298,9 +319,9 @@ void write_stats_json(const std::string& path,
 }
 
 template <class Runtime>
-void run_for_duration(Runtime& runtime,
-                      const BenchmarkConfig& config,
-                      std::exception_ptr& server_failure) {
+void run_until_control(Runtime& runtime,
+                       const BenchmarkConfig& config,
+                       std::exception_ptr& server_failure) {
     std::thread server_thread([&] {
         try {
             runtime.run("127.0.0.1", config.port);
@@ -320,22 +341,33 @@ void run_for_duration(Runtime& runtime,
         throw std::runtime_error("benchmark server did not begin listening within 5 seconds");
     }
 
+    const auto bound_port = runtime.bound_port();
     std::cout << "vhttp benchmark server\n"
               << "  runtime: " << config.runtime << '\n'
-              << "  endpoint: http://127.0.0.1:" << runtime.bound_port() << "/bench\n"
+              << "  endpoint: http://127.0.0.1:" << bound_port << "/bench\n"
               << "  admission capacity: " << config.admission_capacity << '\n';
     if (config.runtime == "threadpool") {
         std::cout << "  workers: " << config.workers << '\n'
                   << "  pending queue: " << (config.admission_capacity - config.workers) << '\n';
     }
     std::cout << "  payload bytes: " << config.payload_bytes << '\n'
-              << "  duration seconds: " << config.duration_seconds << '\n'
-              << "  git revision: " << git_revision() << '\n'
+              << "  control mode: " << (config.until_stdin ? "stdin" : "duration") << '\n';
+    if (!config.until_stdin) {
+        std::cout << "  duration seconds: " << config.duration_seconds << '\n';
+    }
+    std::cout << "  git revision: " << git_revision() << '\n'
               << "  build: " << build_configuration() << '\n'
               << "  compiler: " << compiler_description() << '\n'
+              << "READY runtime=" << config.runtime << " port=" << bound_port << '\n'
               << std::flush;
 
-    std::this_thread::sleep_for(std::chrono::seconds(config.duration_seconds));
+    if (config.until_stdin) {
+        std::string control_line;
+        (void)std::getline(std::cin, control_line);
+    } else {
+        std::this_thread::sleep_for(std::chrono::seconds(config.duration_seconds));
+    }
+
     runtime.request_stop();
     server_thread.join();
 
@@ -350,11 +382,12 @@ NormalizedStats run_threadpool(const BenchmarkConfig& config,
     pool_config.worker_count = config.workers;
     pool_config.max_pending_connections = config.admission_capacity - config.workers;
     pool_config.listen_backlog = static_cast<int>(
-        std::min<std::size_t>(config.admission_capacity, static_cast<std::size_t>(std::numeric_limits<int>::max())));
+        std::min<std::size_t>(config.admission_capacity,
+                              static_cast<std::size_t>(std::numeric_limits<int>::max())));
 
     vhttp::server::ThreadPoolRuntime runtime(handler, {}, pool_config);
     std::exception_ptr server_failure;
-    run_for_duration(runtime, config, server_failure);
+    run_until_control(runtime, config, server_failure);
 
     const auto source = runtime.stats();
     return {source.accepted,
@@ -371,11 +404,12 @@ NormalizedStats run_epoll(const BenchmarkConfig& config,
     vhttp::server::EpollConfig epoll_config;
     epoll_config.max_connections = config.admission_capacity;
     epoll_config.listen_backlog = static_cast<int>(
-        std::min<std::size_t>(config.admission_capacity, static_cast<std::size_t>(std::numeric_limits<int>::max())));
+        std::min<std::size_t>(config.admission_capacity,
+                              static_cast<std::size_t>(std::numeric_limits<int>::max())));
 
     vhttp::server::EpollRuntime runtime(handler, {}, epoll_config);
     std::exception_ptr server_failure;
-    run_for_duration(runtime, config, server_failure);
+    run_until_control(runtime, config, server_failure);
 
     const auto source = runtime.stats();
     return {source.accepted,
@@ -399,8 +433,9 @@ void print_final_stats(const NormalizedStats& stats, const ResourceUsage& resour
         std::cout << "  queued: " << *stats.queued << '\n';
     }
     std::cout << "resource evidence\n"
-              << "  process CPU seconds: " << std::fixed << std::setprecision(6)
-              << resources.cpu_seconds << '\n'
+              << "  wall seconds: " << std::fixed << std::setprecision(6)
+              << resources.wall_seconds << '\n'
+              << "  process CPU seconds: " << resources.cpu_seconds << '\n'
               << "  peak RSS KiB: ";
     if (resources.peak_rss_kib.has_value()) {
         std::cout << *resources.peak_rss_kib;
@@ -428,11 +463,12 @@ int main(int argc, char** argv) {
         const vhttp::server::Handler handler =
             [&router](const auto& request) { return router.dispatch(request); };
 
+        const auto wall_started = std::chrono::steady_clock::now();
         const std::clock_t cpu_started = std::clock();
         const NormalizedStats stats = config.runtime == "threadpool"
                                           ? run_threadpool(config, handler)
                                           : run_epoll(config, handler);
-        const ResourceUsage resources = capture_resource_usage(cpu_started);
+        const ResourceUsage resources = capture_resource_usage(cpu_started, wall_started);
 
         print_final_stats(stats, resources);
         if (config.stats_json.has_value()) {
