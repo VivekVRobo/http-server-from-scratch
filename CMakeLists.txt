@@ -4,6 +4,24 @@ project(vhttp VERSION 0.1.0 LANGUAGES CXX)
 option(VHTTP_BUILD_TESTS "Build vhttp tests" ON)
 option(VHTTP_BUILD_EXAMPLES "Build vhttp examples" ON)
 
+find_package(Threads REQUIRED)
+find_package(Git QUIET)
+
+set(VHTTP_GIT_REVISION "unknown")
+if(Git_FOUND)
+    execute_process(
+        COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD
+        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+        RESULT_VARIABLE VHTTP_GIT_REVISION_RESULT
+        OUTPUT_VARIABLE VHTTP_GIT_REVISION_OUTPUT
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        ERROR_QUIET
+    )
+    if(VHTTP_GIT_REVISION_RESULT EQUAL 0 AND NOT VHTTP_GIT_REVISION_OUTPUT STREQUAL "")
+        set(VHTTP_GIT_REVISION "${VHTTP_GIT_REVISION_OUTPUT}")
+    endif()
+endif()
+
 add_library(vhttp
     src/net/socket.cpp
     src/http/parser.cpp
@@ -18,8 +36,6 @@ add_library(vhttp
 )
 
 add_library(vhttp::vhttp ALIAS vhttp)
-
-find_package(Threads REQUIRED)
 
 target_compile_features(vhttp PUBLIC cxx_std_20)
 target_include_directories(vhttp
@@ -42,6 +58,15 @@ if(VHTTP_BUILD_EXAMPLES)
 
     add_executable(vhttp_bench_server examples/benchmark_server/main.cpp)
     target_link_libraries(vhttp_bench_server PRIVATE vhttp::vhttp)
+    target_compile_definitions(vhttp_bench_server PRIVATE
+        VHTTP_GIT_REVISION="${VHTTP_GIT_REVISION}"
+        VHTTP_BUILD_CONFIGURATION="$<CONFIG>"
+    )
+    if(MSVC)
+        target_compile_options(vhttp_bench_server PRIVATE /W4 /permissive-)
+    else()
+        target_compile_options(vhttp_bench_server PRIVATE -Wall -Wextra -Wpedantic -Wconversion -Wshadow)
+    endif()
 endif()
 
 include(CTest)
