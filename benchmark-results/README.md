@@ -26,6 +26,7 @@ benchmark-results/curated/
     ENVIRONMENT.md
     keepalive-c8/
       summary.json
+      paired-analysis.json
       threadpool-run-01-client.json
       threadpool-run-01-server.json
       threadpool-run-01-client.log
@@ -51,6 +52,7 @@ Every curated result set must include `ENVIRONMENT.md` containing at least:
 - kernel version,
 - power/performance mode when known,
 - whether the client ran on the same machine or a remote machine,
+- whether Linux is native, WSL2, or another VM,
 - relevant background workload notes,
 - exact comparison commands,
 - reasons for any invalidated/excluded runs.
@@ -81,6 +83,26 @@ When comparing `threadpool` and Linux `epoll`:
 - repeat each runtime/scenario at least five times,
 - report failure/rejection behavior alongside throughput and latency,
 - use medians rather than selecting the single best run.
+
+## Paired mathematical analysis
+
+After a comparison directory contains complete threadpool/epoll repetitions, run:
+
+```bash
+python3 tools/analyze_runtime_pairs.py benchmark-results/local/comparison \
+  --output benchmark-results/local/comparison/paired-analysis.json
+```
+
+The analyzer pairs runs by repetition index and calculates the per-pair epoll-vs-threadpool percentage change for:
+
+- successful requests per second;
+- successful-request p95 latency;
+- successful-request p99 latency;
+- failure rate when the threadpool baseline is non-zero.
+
+It then reports the median paired percentage change and how consistently the direction appears across repetitions. Positive throughput delta means epoll measured higher; negative latency delta means epoll measured lower.
+
+This is intentionally a descriptive paired analysis, not a claim of statistical significance or a universal runtime winner. The final conclusion must remain scoped to the documented machine and scenario.
 
 ## Claims rule
 
