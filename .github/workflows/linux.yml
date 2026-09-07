@@ -14,11 +14,17 @@ jobs:
       - uses: actions/checkout@v4
       - name: Validate benchmark harnesses
         run: |
-          python3 -m py_compile tools/stress_http.py tools/compare_runtimes.py tools/analyze_runtime_pairs.py
+          python3 -m py_compile \
+            tools/stress_http.py \
+            tools/compare_runtimes.py \
+            tools/analyze_runtime_pairs.py \
+            tools/validate_m6b2_campaign.py
           python3 tools/stress_http.py --help >/dev/null
           python3 tools/compare_runtimes.py --help >/dev/null
           python3 tools/analyze_runtime_pairs.py --help >/dev/null
-          (cd tools && python3 -m unittest -v test_analyze_runtime_pairs.py)
+          python3 tools/validate_m6b2_campaign.py --help >/dev/null
+          bash -n scripts/capture_benchmark_environment.sh scripts/run_m6b2_campaign.sh
+          (cd tools && python3 -m unittest -v test_analyze_runtime_pairs.py test_validate_m6b2_campaign.py)
       - name: Configure GCC
         if: matrix.compiler == 'gcc'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
