@@ -56,3 +56,11 @@ jobs:
             --require-identified-build
           python3 tools/analyze_runtime_pairs.py build/benchmark-smoke \
             --output build/benchmark-smoke/paired-analysis.json
+      - name: Upload runtime comparison smoke (not benchmark evidence)
+        if: matrix.compiler == 'gcc' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-comparison-smoke-not-benchmark-evidence
+          path: build/benchmark-smoke/
+          if-no-files-found: error
+          retention-days: 30
