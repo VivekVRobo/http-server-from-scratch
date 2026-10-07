@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="430" viewBox="0 0 1200 430" role="img" aria-labelledby="t d">
+<title id="t">vhttp — C++20 HTTP/1.1 Server From Scratch</title>
+<desc id="d">A cross platform C++20 HTTP server built from raw sockets with incremental parsing, routing, secure static files, bounded thread pool concurrency, Linux epoll, and reproducible comparative benchmark tooling.</desc>
+<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#F4F0E8"/><stop offset="1" stop-color="#E5EDF1"/></linearGradient><pattern id="grid" width="30" height="30" patternUnits="userSpaceOnUse"><path d="M30 0H0V30" fill="none" stroke="#6F90A8" stroke-opacity=".09"/></pattern><filter id="s"><feDropShadow dx="0" dy="6" stdDeviation="10" flood-color="#132436" flood-opacity=".10"/></filter></defs>
+<rect width="1200" height="430" rx="28" fill="url(#bg)"/><rect width="1200" height="430" rx="28" fill="url(#grid)"/>
+<g font-family="Inter,Segoe UI,Arial,sans-serif">
+<text x="58" y="62" font-size="15" font-weight="700" letter-spacing="3.2" fill="#647985">C++20 · RAW SOCKETS · HTTP/1.1 · THREAD POOL · EPOLL</text>
+<text x="58" y="119" font-size="49" font-weight="800" fill="#132436">vhttp</text>
+<text x="58" y="155" font-size="22" font-weight="650" fill="#395260">HTTP/1.1 server built from scratch</text>
+<text x="58" y="210" font-size="18.5" fill="#425866">Explicit parsing, framing, routing, secure static files, persistence,</text>
+<text x="58" y="238" font-size="18.5" fill="#425866">bounded concurrency, event driven I/O, and reproducible benchmarking.</text>
+<g transform="translate(58 286)">
+<rect width="146" height="42" rx="12" fill="#fff" fill-opacity=".66" stroke="#B3C3CA"/><text x="73" y="27" text-anchor="middle" font-size="13.5" font-weight="700" fill="#284252">HTTP/1.1</text>
+<rect x="160" width="168" height="42" rx="12" fill="#fff" fill-opacity=".66" stroke="#B3C3CA"/><text x="244" y="27" text-anchor="middle" font-size="13.5" font-weight="700" fill="#284252">THREAD POOL</text>
+<rect x="342" width="166" height="42" rx="12" fill="#fff" fill-opacity=".66" stroke="#B3C3CA"/><text x="425" y="27" text-anchor="middle" font-size="13.5" font-weight="700" fill="#284252">LINUX EPOLL</text>
+</g>
+<g transform="translate(58 354)"><rect width="510" height="48" rx="14" fill="#263D49"/><circle cx="25" cy="24" r="7" fill="#C9965B"/><text x="45" y="30" font-size="13.5" font-weight="700" fill="#F4F0E8">BENCHMARK WORKFLOW READY · CONTROLLED HOST RESULTS PENDING</text></g>
+<g transform="translate(650 42)" filter="url(#s)">
+<rect width="492" height="346" rx="22" fill="#fff" fill-opacity=".68" stroke="#B4C4CB"/>
+<g text-anchor="middle" fill="#203540">
+<g transform="translate(28 44)"><rect width="114" height="52" rx="13" fill="#E8EFF2" stroke="#8CA3AE"/><text x="57" y="21" font-size="13" font-weight="700">TCP Socket</text><text x="57" y="39" font-size="10.5" fill="#607582">raw transport</text></g>
+<g transform="translate(188 34)"><rect width="134" height="72" rx="15" fill="#DDE8ED" stroke="#7894A1"/><text x="67" y="25" font-size="13.5" font-weight="800">ConnectionSession</text><text x="67" y="45" font-size="10.5" fill="#557180">parser · lifecycle</text><text x="67" y="60" font-size="10.5" fill="#557180">serializer</text></g>
+<g transform="translate(358 44)"><rect width="106" height="52" rx="13" fill="#E8EFF2" stroke="#8CA3AE"/><text x="53" y="21" font-size="13" font-weight="700">Router</text><text x="53" y="39" font-size="10.5" fill="#607582">static files</text></g>
+<g transform="translate(92 165)"><rect width="140" height="66" rx="15" fill="#E3ECE6" stroke="#789783"/><text x="70" y="26" font-size="13.5" font-weight="800">Thread Pool</text><text x="70" y="47" font-size="10.5" fill="#5F7667">bounded blocking</text></g>
+<g transform="translate(280 165)"><rect width="140" height="66" rx="15" fill="#F2E7D9" stroke="#B78555"/><text x="70" y="26" font-size="13.5" font-weight="800">Linux epoll</text><text x="70" y="47" font-size="10.5" fill="#76583E">nonblocking I/O</text></g>
+<g transform="translate(145 275)"><rect width="202" height="46" rx="13" fill="#263D49"/><text x="101" y="28" font-size="12.5" font-weight="700" fill="#F4F0E8">SAME HTTP SEMANTICS</text></g>
+</g>
+<g fill="none" stroke="#718894" stroke-width="2.6" stroke-linecap="round"><path d="M142 70H188"/><path d="M322 70H358"/><path d="M255 106V140H162V165"/><path d="M255 140H350V165"/><path d="M162 231V251H246V275"/><path d="M350 231V251H246V275"/></g>
+<g fill="#718894"><path d="M185 65l10 5-10 5z"/><path d="M355 65l10 5-10 5z"/><path d="M157 161l5 10 5-10z"/><path d="M345 161l5 10 5-10z"/><path d="M241 271l5 10 5-10z"/></g>
+</g>
+</g></svg>
