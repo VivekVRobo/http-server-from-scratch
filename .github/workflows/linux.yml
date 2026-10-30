@@ -24,7 +24,7 @@ jobs:
           python3 tools/analyze_runtime_pairs.py --help >/dev/null
           python3 tools/validate_m6b2_campaign.py --help >/dev/null
           bash -n scripts/capture_benchmark_environment.sh scripts/run_m6b2_campaign.sh
-          (cd tools && python3 -m unittest -v test_analyze_runtime_pairs.py test_validate_m6b2_campaign.py)
+          (cd tools && python3 -m unittest -v test_analyze_runtime_pairs.py test_validate_m6b2_campaign.py test_compare_runtimes.py)
       - name: Configure GCC
         if: matrix.compiler == 'gcc'
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=g++
