@@ -171,9 +171,9 @@ def format_timeout_output(exc: subprocess.TimeoutExpired, timeout_seconds: float
     else:
         output = ""
 
-    if output and not output.endswith(("\\n", "\\r")):
-        output += "\\n"
-    output += f"[ERROR] benchmark client timed out after {timeout_seconds:.1f}s\\n"
+    if output and not output.endswith(("\n", "\r")):
+        output += "\n"
+    output += f"[ERROR] benchmark client timed out after {timeout_seconds:.1f}s\n"
     return output
 
 
