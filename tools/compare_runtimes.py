@@ -161,6 +161,22 @@ def load_json(path: pathlib.Path) -> dict[str, Any]:
     return data
 
 
+def format_timeout_output(exc: subprocess.TimeoutExpired, timeout_seconds: float) -> str:
+    """Preserve partial client output and mark a timed-out benchmark phase."""
+    captured = exc.stdout if exc.stdout is not None else exc.output
+    if isinstance(captured, bytes):
+        output = captured.decode("utf-8", errors="replace")
+    elif isinstance(captured, str):
+        output = captured
+    else:
+        output = ""
+
+    if output and not output.endswith(("\\n", "\\r")):
+        output += "\\n"
+    output += f"[ERROR] benchmark client timed out after {timeout_seconds:.1f}s\\n"
+    return output
+
+
 def nested_mapping(value: Any, label: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise RuntimeError(f"expected object for {label}")
@@ -322,14 +338,23 @@ def run_once(
             "--json-out",
             str(client_json_path),
         ]
-        completed = subprocess.run(
-            client_command,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            timeout=args.client_phase_timeout,
-            check=False,
-        )
+        try:
+            completed = subprocess.run(
+                client_command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                timeout=args.client_phase_timeout,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            # TimeoutExpired may expose bytes even though text=True was requested.
+            # Keep those partial diagnostics in the normal finally-written log.
+            client_output = format_timeout_output(exc, args.client_phase_timeout)
+            raise RuntimeError(
+                f"{runtime} client phase timed out after "
+                f"{args.client_phase_timeout:.1f}s; see {client_log_path}"
+            ) from exc
         client_output = completed.stdout
         client_returncode = completed.returncode
     finally:
