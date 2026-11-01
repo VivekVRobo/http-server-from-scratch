@@ -51,6 +51,24 @@ void rejects_unsupported_transfer_coding() {
     expect(status == vhttp::http::ParseStatus::error, "unsupported Transfer-Encoding rejected explicitly");
 }
 
+void rejects_control_and_non_ascii_request_target_octets() {
+    const unsigned char invalid_bytes[] = {'\t', '\0', 0x1FU, 0x7FU, 0x80U};
+    for (const unsigned char invalid_byte : invalid_bytes) {
+        std::string request = "GET /path";
+        request.push_back(static_cast<char>(invalid_byte));
+        request += "tail HTTP/1.1\r\n\r\n";
+
+        vhttp::http::HttpRequestParser parser;
+        expect(parser.feed(request) == vhttp::http::ParseStatus::error,
+               "control and non-ASCII request-target octets must be rejected");
+    }
+
+    vhttp::http::HttpRequestParser parser;
+    expect(parser.feed("GET /caf%C3%A9 HTTP/1.1\r\n\r\n") ==
+               vhttp::http::ParseStatus::complete,
+           "percent-encoded non-ASCII path bytes remain valid");
+}
+
 void enforces_request_line_limit() {
     vhttp::http::ParserLimits limits;
     limits.max_request_line_bytes = 16;
@@ -67,5 +85,6 @@ int main() {
     rejects_conflicting_content_length();
     rejects_unsupported_transfer_coding();
     enforces_request_line_limit();
+    rejects_control_and_non_ascii_request_target_octets();
     std::cout << "parser tests passed\n";
 }
