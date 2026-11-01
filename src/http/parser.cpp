@@ -56,6 +56,17 @@ bool valid_token(std::string_view value) {
     return true;
 }
 
+bool valid_request_target(std::string_view value) {
+    // HTTP request-targets are URI syntax: raw whitespace, control bytes, DEL,
+    // and non-ASCII bytes must be percent-encoded before reaching the parser.
+    for (const unsigned char ch : value) {
+        if (ch < 0x21U || ch > 0x7EU) {
+            return false;
+        }
+    }
+    return true;
+}
+
 int hex_digit(unsigned char ch) {
     if (ch >= '0' && ch <= '9') {
         return static_cast<int>(ch - '0');
@@ -301,6 +312,10 @@ bool HttpRequestParser::parse_request_line(std::string_view line) {
     }
     if (target.empty()) {
         fail("empty request target");
+        return false;
+    }
+    if (!valid_request_target(target)) {
+        fail("invalid request target: only visible ASCII bytes are allowed");
         return false;
     }
     if (version != "HTTP/1.1" && version != "HTTP/1.0") {
