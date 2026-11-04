@@ -332,6 +332,10 @@ bool HttpRequestParser::parse_header_line(std::string_view line) {
 
     auto [it, inserted] = request_.headers.emplace(name, value);
     if (!inserted) {
+        if (name == "host" && request_.version == "HTTP/1.1") {
+            fail("multiple Host header fields are not allowed in HTTP/1.1");
+            return false;
+        }
         if (name == "content-length" && it->second != value) {
             fail("conflicting Content-Length headers");
             return false;
@@ -427,6 +431,18 @@ bool HttpRequestParser::parse_chunk_size_line(std::string_view line) {
 }
 
 bool HttpRequestParser::finalize_headers() {
+    if (request_.version == "HTTP/1.1") {
+        const auto host = request_.headers.find("host");
+        if (host == request_.headers.end()) {
+            fail("HTTP/1.1 request is missing the Host header");
+            return false;
+        }
+        if (trim_ows(host->second).empty()) {
+            fail("HTTP/1.1 Host header value must not be empty");
+            return false;
+        }
+    }
+
     const auto te = request_.headers.find("transfer-encoding");
     const auto cl = request_.headers.find("content-length");
 
