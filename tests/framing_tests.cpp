@@ -34,14 +34,14 @@ void decodes_fragmented_chunks_extensions_trailers_and_remaining_bytes() {
 void accepts_ows_around_single_chunked_coding() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding:\tchunked \t\r\n\r\n0\r\n\r\n");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding:\tchunked \t\r\n\r\n0\r\n\r\n");
     expect(status == vhttp::http::ParseStatus::complete, "OWS around chunked coding should be accepted");
 }
 
 void rejects_transfer_encoding_plus_content_length() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\nContent-Length: 4\r\n\r\n"
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Length: 4\r\n\r\n"
         "4\r\ntest\r\n0\r\n\r\n");
     expect(status == vhttp::http::ParseStatus::error,
            "Transfer-Encoding plus Content-Length must be rejected as ambiguous framing");
@@ -50,7 +50,7 @@ void rejects_transfer_encoding_plus_content_length() {
 void rejects_nonfinal_or_unsupported_transfer_codings() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: gzip, chunked\r\n\r\n0\r\n\r\n");
     expect(status == vhttp::http::ParseStatus::error,
            "unsupported coding chains should be rejected instead of partially decoded");
 }
@@ -66,13 +66,13 @@ void rejects_invalid_or_overflowing_chunk_size() {
     {
         vhttp::http::HttpRequestParser parser;
         const auto status = parser.feed(
-            "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\nZ\r\n");
+            "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\nZ\r\n");
         expect(status == vhttp::http::ParseStatus::error, "non-hex chunk size should be rejected");
     }
     {
         vhttp::http::HttpRequestParser parser;
         const auto status = parser.feed(
-            "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+            "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"
             "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF\r\n");
         expect(status == vhttp::http::ParseStatus::error, "overflowing chunk size should be rejected");
     }
@@ -81,7 +81,7 @@ void rejects_invalid_or_overflowing_chunk_size() {
 void rejects_missing_crlf_after_chunk_data() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1\r\naZZ");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n1\r\naZZ");
     expect(status == vhttp::http::ParseStatus::error, "chunk data must be followed by CRLF");
 }
 
@@ -90,7 +90,7 @@ void enforces_decoded_body_limit_before_buffering_chunk() {
     limits.max_body_bytes = 4;
     vhttp::http::HttpRequestParser parser(limits);
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n");
     expect(status == vhttp::http::ParseStatus::error, "oversized decoded chunk should be rejected from size line");
 }
 
@@ -99,14 +99,14 @@ void enforces_chunk_line_limit() {
     limits.max_chunk_line_bytes = 4;
     vhttp::http::HttpRequestParser parser(limits);
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1;toolong");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n1;toolong");
     expect(status == vhttp::http::ParseStatus::error, "oversized chunk-size/extension line should be rejected");
 }
 
 void rejects_forbidden_trailer_fields() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n"
         "0\r\nContent-Length: 10\r\n\r\n");
     expect(status == vhttp::http::ParseStatus::error, "framing fields must not be accepted from trailers");
 }
@@ -114,7 +114,7 @@ void rejects_forbidden_trailer_fields() {
 void rejects_empty_chunk_extension() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n1;\r\n");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n1;\r\n");
     expect(status == vhttp::http::ParseStatus::error, "bare semicolon chunk extension should be rejected");
 }
 

@@ -7,6 +7,7 @@ This repository is currently an educational implementation, not a production rev
 ### Request syntax and message framing
 
 - Bounded request line, headers, header count, body, chunk line, trailer bytes, and trailer count.
+- HTTP/1.1 requests require exactly one non-empty `Host` field; missing, empty, and duplicate field lines are rejected.
 - Conflicting `Content-Length` rejection.
 - `Transfer-Encoding` + `Content-Length` ambiguity rejection.
 - Only supported HTTP/1.1 chunked request coding is accepted; unsupported coding chains fail closed.
