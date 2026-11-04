@@ -69,14 +69,14 @@ void parses_body_and_preserves_extra_bytes() {
 void rejects_conflicting_content_length() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\nhello");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nContent-Length: 5\r\n\r\nhello");
     expect(status == vhttp::http::ParseStatus::error, "conflicting Content-Length rejected");
 }
 
 void rejects_unsupported_transfer_coding() {
     vhttp::http::HttpRequestParser parser;
     const auto status = parser.feed(
-        "POST / HTTP/1.1\r\nTransfer-Encoding: gzip\r\n\r\nhello");
+        "POST / HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: gzip\r\n\r\nhello");
     expect(status == vhttp::http::ParseStatus::error, "unsupported Transfer-Encoding rejected explicitly");
 }
 
