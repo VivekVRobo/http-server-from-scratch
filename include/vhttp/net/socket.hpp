@@ -55,6 +55,7 @@ public:
     [[nodiscard]] bool valid() const noexcept { return socket_ != invalid_socket; }
     std::ptrdiff_t receive(char* buffer, std::size_t size);
     void send_all(std::string_view bytes);
+    void shutdown_send();
     void set_receive_timeout(std::chrono::milliseconds timeout);
     void close() noexcept;
 
