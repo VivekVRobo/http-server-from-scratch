@@ -171,6 +171,21 @@ void TcpStream::send_all(std::string_view bytes) {
     }
 }
 
+void TcpStream::shutdown_send() {
+    if (!valid()) {
+        throw std::logic_error("cannot half-close an invalid socket");
+    }
+#ifdef _WIN32
+    if (::shutdown(socket_, SD_SEND) == SOCKET_ERROR) {
+        throw_socket_error("shutdown(SD_SEND)");
+    }
+#else
+    if (::shutdown(socket_, SHUT_WR) != 0) {
+        throw_socket_error("shutdown(SHUT_WR)");
+    }
+#endif
+}
+
 void TcpStream::set_receive_timeout(std::chrono::milliseconds timeout) {
     if (!valid()) {
         throw std::logic_error("cannot configure an invalid socket");
