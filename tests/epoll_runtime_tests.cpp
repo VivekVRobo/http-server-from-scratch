@@ -123,6 +123,39 @@ void serves_pipelined_requests_in_order() {
     expect(stats.peak_active >= 1, "runtime should record peak active connection count");
 }
 
+void serves_a_request_after_client_half_close() {
+    vhttp::server::ConnectionConfig connection_config;
+    connection_config.idle_timeout = 2000ms;
+
+    vhttp::server::EpollConfig epoll_config;
+    epoll_config.max_connections = 4;
+    epoll_config.poll_interval = 10ms;
+
+    vhttp::server::EpollRuntime runtime(
+        [](const vhttp::http::HttpRequest&) {
+            return vhttp::http::HttpResponse::text(200, "OK", "half-close\n");
+        },
+        connection_config,
+        epoll_config);
+
+    RunningEpoll running(runtime);
+    auto client = vhttp::net::TcpStream::connect("127.0.0.1", runtime.bound_port());
+    client.set_receive_timeout(3000ms);
+    client.send_all("GET /half-close HTTP/1.1\r\nHost: localhost\r\n\r\n");
+    client.shutdown_send();
+
+    const std::string wire = receive_until_close(client);
+    expect(wire.find("HTTP/1.1 200 OK") != std::string::npos,
+           "epoll runtime should respond after the client half-closes its send side");
+    expect(wire.find("half-close\n") != std::string::npos,
+           "response body should survive the peer read-half close");
+
+    running.stop_and_join();
+    const auto stats = runtime.stats();
+    expect(stats.accepted == 1 && stats.completed == 1 && stats.failed == 0,
+           "half-closed request should complete without runtime failure");
+}
+
 void rejects_connections_above_admission_bound() {
     vhttp::server::ConnectionConfig connection_config;
     connection_config.idle_timeout = 1500ms;
@@ -306,6 +339,7 @@ int main() {
     vhttp::net::SocketRuntime socket_runtime;
     validates_epoll_configuration();
     serves_pipelined_requests_in_order();
+    serves_a_request_after_client_half_close();
     rejects_connections_above_admission_bound();
     retires_idle_connections_without_busy_waiting();
     bounds_pending_response_memory();
