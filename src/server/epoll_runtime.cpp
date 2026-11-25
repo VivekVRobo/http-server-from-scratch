@@ -255,12 +255,16 @@ void modify_interest(int epoll_fd, int fd, std::uint32_t events) {
 #endif
 
 void EpollRuntime::run(std::string host, std::uint16_t port) {
+    // Clear a stale stop request before publishing the running state. Once
+    // running_ becomes true, request_stop() must not be able to race with a
+    // subsequent reset and silently lose the caller's shutdown request.
+    stop_requested_.store(false);
+
     bool expected = false;
     if (!running_.compare_exchange_strong(expected, true)) {
         throw std::logic_error("epoll runtime is already running");
     }
 
-    stop_requested_.store(false);
     accepted_.store(0);
     rejected_.store(0);
     completed_.store(0);
