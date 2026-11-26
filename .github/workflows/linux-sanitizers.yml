@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   asan-ubsan:
     runs-on: ubuntu-latest
