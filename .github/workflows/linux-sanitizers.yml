@@ -1,0 +1,42 @@
+name: Linux Sanitizers
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  asan-ubsan:
+    runs-on: ubuntu-latest
+    env:
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:abort_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure sanitizer build
+        run: |
+          cmake -S . -B build-sanitized \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_COMPILER=g++ \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build-sanitized --parallel
+
+      - name: Test
+        run: ctest --test-dir build-sanitized --output-on-failure
+
+      - name: Upload sanitizer build metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-sanitizer-test-results
+          path: build-sanitized/Testing/
+          if-no-files-found: ignore
+          retention-days: 14
